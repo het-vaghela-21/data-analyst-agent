@@ -77,9 +77,7 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
         print(f"Executing tool: {tool_name} with args: {args}")
 
         if tool_name == "run_python_code_on_data":
-            # --- NEW RESILIENT CODE ---
-            # If the LLM forgets the dataframe_name, but a query result exists,
-            # intelligently assume it intended to use the query result.
+            # This logic automatically uses the result of a previous query if the AI forgets
             if 'dataframe_name' not in args and 'query_result' in data_context:
                 print("INFO: 'dataframe_name' missing. Auto-using 'query_result'.")
                 args['dataframe_name'] = 'query_result'
