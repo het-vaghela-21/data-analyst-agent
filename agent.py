@@ -12,9 +12,9 @@ client = OpenAI(
 
 def process_analysis_request(task_description: str, files: dict) -> dict:
     data_context = {}
-    data_source_summary = "No specific data source identified." # Default value
+    data_source_summary = "No specific data source identified."
 
-    # Step 1: Load data from the appropriate source
+    # Step 1: Load initial data if provided
     if "data.csv" in files:
         df = pd.read_csv(files['data.csv'])
         data_context['df1'] = df
@@ -45,8 +45,8 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
     ---
 
     **Available Tools:**
-    1. run_python_code_on_data(code: str, dataframe_name: str): Use for analysis on a DataFrame. The dataframe_name can be 'df1' (if loaded from a file/scrape) or 'query_result' (if it's the result of a previous duckdb query). The dataframe is available as 'df1' inside the code. The code MUST use a print() statement.
-    2. run_duckdb_query(query: str): Use for querying remote datasets. The result of this query is automatically saved as a DataFrame named 'query_result' for the next step to use.
+    1. run_python_code_on_data(code: str, dataframe_name: str): Use for analysis on a DataFrame. The dataframe_name can be 'df1' (if loaded initially) or 'query_result' (if from a duckdb query). The dataframe is available as 'df1' inside the code. The code MUST use a print() statement.
+    2. run_duckdb_query(query: str): Use for querying remote datasets. The result is saved as a DataFrame named 'query_result' for the next step.
     3. create_scatterplot_with_regression(dataframe_name: str, x_col: str, y_col: str): Generates a plot. Can use 'df1' or 'query_result' as the dataframe_name.
 
     **Response Format:**
@@ -72,11 +72,18 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
     results = []
     for step in plan:
         tool_name = step['tool_name']
-        args = step.get('args', {}) # Use .get for safety
+        args = step.get('args', {})
         
         print(f"Executing tool: {tool_name} with args: {args}")
 
         if tool_name == "run_python_code_on_data":
+            # --- NEW RESILIENT CODE ---
+            # If the LLM forgets the dataframe_name, but a query result exists,
+            # intelligently assume it intended to use the query result.
+            if 'dataframe_name' not in args and 'query_result' in data_context:
+                print("INFO: 'dataframe_name' missing. Auto-using 'query_result'.")
+                args['dataframe_name'] = 'query_result'
+            
             df_name = args.pop('dataframe_name')
             result = run_python_code_on_data(dataframe=data_context[df_name], **args)
         
@@ -102,8 +109,6 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
 
     if "respond with a JSON object" in task_description.lower():
         try:
-            # --- THIS SECTION IS NOW FIXED ---
-            # A more robust way to parse the keys from the prompt's JSON example
             json_block_in_prompt = task_description.split('```json')[1].split('```')[0]
             question_keys = json.loads(json_block_in_prompt).keys()
             return {key: res for key, res in zip(question_keys, final_results)}
