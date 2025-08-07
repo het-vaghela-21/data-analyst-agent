@@ -12,9 +12,9 @@ client = OpenAI(
 
 def process_analysis_request(task_description: str, files: dict) -> dict:
     data_context = {}
-    data_source_summary = "No specific data source identified."
+    data_source_summary = "No specific data source identified." # Default value
 
-    # Step 1: Load initial data if provided
+    # Step 1: Load data from the appropriate source
     if "data.csv" in files:
         df = pd.read_csv(files['data.csv'])
         data_context['df1'] = df
@@ -83,7 +83,6 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
         elif tool_name == "run_duckdb_query":
             result_df = run_duckdb_query(**args)
             if isinstance(result_df, pd.DataFrame):
-                # *** UPGRADE: Save the query result for the next tool to use ***
                 data_context['query_result'] = result_df
                 result = f"Query successful, result stored in 'query_result'. Rows: {len(result_df)}"
             else:
@@ -99,16 +98,17 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
         results.append(result)
     
     # Step 4: Format and return final response
-    # This logic may need to be smarter, but for now, we return the direct results
-    # that the questions asked for. We will filter out the intermediate "Query successful..." messages.
     final_results = [res for res in results if not isinstance(res, str) or not res.startswith("Query successful")]
 
     if "respond with a JSON object" in task_description.lower():
         try:
-            # A simple way to get question keys
-            question_keys = [q.strip().replace('"', ''): '...' for q in task_description.split('{')[1].split('}')[0].split(',') if ':' in q]
+            # --- THIS SECTION IS NOW FIXED ---
+            # A more robust way to parse the keys from the prompt's JSON example
+            json_block_in_prompt = task_description.split('```json')[1].split('```')[0]
+            question_keys = json.loads(json_block_in_prompt).keys()
             return {key: res for key, res in zip(question_keys, final_results)}
-        except Exception:
+        except Exception as e:
+            print(f"Error formatting JSON object response: {e}")
             return {"error": "Failed to format response as object.", "results": final_results}
     else:
         return final_results
