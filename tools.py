@@ -24,7 +24,7 @@ def run_python_code_on_data(code: str, dataframe: pd.DataFrame) -> str:
     Returns the printed output of the code.
     """
     buffer = io.StringIO()
-    local_vars = {'df': dataframe, 'pd': pd}
+    local_vars = {'df1': dataframe, 'pd': pd}
 
     with redirect_stdout(buffer):
         try:
