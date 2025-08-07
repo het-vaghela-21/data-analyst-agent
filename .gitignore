@@ -1,0 +1,11 @@
+# Ignore the Python virtual environment
+venv/
+__pycache__/
+
+# Ignore environment variables file
+.env
+
+# VS Code settings
+.vscode/
+
+.vercel

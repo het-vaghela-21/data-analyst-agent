@@ -1,0 +1,11 @@
+Flask
+requests
+beautifulsoup4
+pandas
+matplotlib
+seaborn
+numpy
+duckdb
+python-dotenv
+openai
+lxml
