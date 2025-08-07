@@ -4,7 +4,7 @@ import pandas as pd
 from openai import OpenAI
 from tools import scrape_web_table, run_python_code_on_data, run_duckdb_query, create_scatterplot_with_regression
 
-# Configure the client to use the AI Proxy
+# Configure the client to use the new AI Proxy URL
 client = OpenAI(
     base_url="https://aipipe.org/openai/v1",
     api_key=os.getenv("AIPROXY_TOKEN")
@@ -29,7 +29,7 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
     else:
         data_source_summary = "No specific data source identified."
 
-    # Define the plan-generation prompt
+    # Define the improved plan-generation prompt
     prompt = f"""
     You are a data analyst agent. Your task is to create a step-by-step plan in JSON format to answer the user's request.
     The user's final desired output format is described in the request (e.g., a JSON array of strings, a JSON object).
@@ -39,7 +39,7 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
     ---
     {task_description}
     ---
-
+    
     **Data Context:**
     ---
     {data_source_summary}
@@ -47,34 +47,13 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
     ---
 
     **Available Tools:**
-    1. run_python_code_on_data(code: str, dataframe_name: str): Executes python code on a named dataframe. The dataframe is available as 'df'. The code MUST use a print() statement to return a result.
-    2. run_duckdb_query(query: str): Executes a DuckDB SQL query. Returns a dataframe.
-    3. create_scatterplot_with_regression(dataframe_name: str, x_col: str, y_col: str): Generates a scatterplot.
+    1. run_python_code_on_data(code: str, dataframe_name: str): Use this for all calculations, analysis, filtering, and correlations on data that is ALREADY loaded in a pandas DataFrame. The dataframe is available as 'df'. The code MUST use a print() statement to return a result.
+    2. run_duckdb_query(query: str): ONLY use this for querying large, remote datasets like the Indian court dataset when explicitly mentioned in the request. Do NOT use this for data already in a DataFrame.
+    3. create_scatterplot_with_regression(dataframe_name: str, x_col: str, y_col: str): Generates a scatterplot from a DataFrame.
 
     **Response Format:**
     Your response must be a single JSON object with a key "plan", which is an array of steps. Each step is an object with "tool_name" and "args".
     The arguments in "args" MUST match the function signatures of the tools.
-
-    Example Plan:
-    {{
-      "plan": [
-        {{
-          "tool_name": "run_python_code_on_data",
-          "args": {{
-            "dataframe_name": "df1",
-            "code": "print(df[df['Year'] < 2000].shape[0])"
-          }}
-        }},
-        {{
-          "tool_name": "create_scatterplot_with_regression",
-          "args": {{
-            "dataframe_name": "df1",
-            "x_col": "Rank",
-            "y_col": "Peak"
-          }}
-        }}
-      ]
-    }}
     """
 
     response = client.chat.completions.create(
@@ -85,7 +64,7 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
         ],
         response_format={"type": "json_object"}
     )
-
+    
     plan_data = json.loads(response.choices[0].message.content)
     plan = plan_data.get("plan", [])
 
@@ -96,24 +75,32 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
     for step in plan:
         tool_name = step['tool_name']
         args = step['args']
-
+        
         print(f"Executing tool: {tool_name} with args: {args}")
 
         if tool_name == "run_python_code_on_data":
             df_name = args.pop('dataframe_name')
             result = run_python_code_on_data(dataframe=data_context[df_name], **args)
+        
         elif tool_name == "run_duckdb_query":
             result_df = run_duckdb_query(**args)
-            result = result_df.to_string() 
-            data_context['duckdb_result'] = result_df
+            # Check if the tool returned a DataFrame or an error string
+            if isinstance(result_df, pd.DataFrame):
+                result = result_df.to_string()
+                data_context['duckdb_result'] = result_df
+            else:
+                # If it's not a DataFrame, it's an error string. Just use it.
+                result = result_df
+        
         elif tool_name == "create_scatterplot_with_regression":
             df_name = args.pop('dataframe_name')
             result = create_scatterplot_with_regression(dataframe=data_context[df_name], **args)
+        
         else:
             result = f"Error: Unknown tool '{tool_name}'"
-
+            
         results.append(result)
-
+    
     # Simple formatting based on request type
     if "respond with a JSON object" in task_description.lower():
         try:
