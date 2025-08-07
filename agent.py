@@ -6,7 +6,7 @@ from tools import scrape_web_table, run_python_code_on_data, run_duckdb_query, c
 
 # Configure the client to use the AI Proxy
 client = OpenAI(
-    base_url="https://aiproxy.sanand.workers.dev/openai",
+    base_url="https://aiproxy.sanand.workers.dev/openai/v1",
     api_key=os.getenv("AIPROXY_TOKEN")
 )
 
