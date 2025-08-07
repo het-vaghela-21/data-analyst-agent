@@ -6,18 +6,58 @@ import matplotlib.pyplot as plt
 import numpy as np
 import base64
 
+# tools.py
+
+import pandas as pd
+# (Keep all your other functions like run_python_code_on_data, etc.)
+
 def scrape_web_table(url: str) -> pd.DataFrame:
     """
-    Scrapes the first table found at a given URL and returns it as a pandas DataFrame.
+    Scrapes the first table at a URL, cleans it for analysis, and returns a pandas DataFrame.
     """
     try:
-        # lxml is a fast parser, good to specify
         tables = pd.read_html(url, flavor='lxml')
-        print(f"Found {len(tables)} tables. Returning the first one.")
-        return tables[0]
-    except Exception as e:
-        return f"Error scraping table: {e}"
+        df = tables[0]
 
+        # --- DATA CLEANING STEPS ---
+        # 1. Rename columns for easier access by the AI
+        if 'Worldwide gross' in df.columns:
+            df.rename(columns={'Worldwide gross': 'Gross'}, inplace=True)
+        if 'Reference(s)' in df.columns:
+            df.rename(columns={'Reference(s)': 'Reference'}, inplace=True)
+
+
+        # 2. Clean the 'Gross' column (e.g., "$2.9 billion" -> 2900000000)
+        if 'Gross' in df.columns:
+            df['Gross'] = df['Gross'].astype(str).str.replace(r'\$', '', regex=True).str.replace(r'\[.*?\]', '', regex=True)
+            
+            def convert_gross_to_number(gross_str):
+                gross_str = gross_str.lower()
+                if 'billion' in gross_str:
+                    return float(gross_str.replace('billion', '')) * 1_000_000_000
+                elif 'million' in gross_str:
+                    return float(gross_str.replace('million', '')) * 1_000_000
+                else:
+                    return pd.to_numeric(gross_str.replace(',', ''), errors='coerce')
+            
+            df['Gross'] = df['Gross'].apply(convert_gross_to_number)
+
+        # 3. Clean other key columns to ensure they are purely numeric
+        for col in ['Year', 'Rank', 'Peak']:
+            if col in df.columns:
+                # errors='coerce' will turn any non-numeric value into a blank (NaN)
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # 4. Drop any rows that have blank values in our key columns after cleaning
+        df.dropna(subset=['Gross', 'Year', 'Rank', 'Peak'], inplace=True)
+        
+        print("Data scraped and cleaned successfully.")
+        return df
+        
+    except Exception as e:
+        return f"Error scraping or cleaning table: {e}"
+
+# (Your other functions like run_python_code_on_data, run_duckdb_query, etc. stay below)
 def run_python_code_on_data(code: str, dataframe: pd.DataFrame) -> str:
     """
     Executes a snippet of Python code with a DataFrame named 'df' available.
