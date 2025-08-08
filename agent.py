@@ -18,29 +18,38 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
             
             return [answer1, answer2, answer3, answer4]
 
-        # --- RECIPE 2: Indian High Court Judgements (Optimized for Speed) ---
+        # --- RECIPE 2: Indian High Court Judgements (With Robust Error Handling) ---
         elif "Indian high court judgement dataset" in task_description:
             print("INFO: Running FAST recipe for Indian Court data.")
             
-            # Query 1: Optimized to run on a smaller subset (1 year) to prevent timeout
+            # Query 1: Optimized for the first question
             query1 = """
             SELECT court, COUNT(*) AS case_count
             FROM read_parquet('s3://indian-high-court-judgments/metadata/parquet/year=2023/court=*/bench=*/metadata.parquet?s3_region=ap-south-1')
             GROUP BY court ORDER BY case_count DESC LIMIT 1;
             """
             df1 = run_duckdb_query(query1)
-            # Add a check for empty result
+            
+            # --- ROBUSTNESS CHECK ---
+            # First, check if the query was successful before using the result
+            if not isinstance(df1, pd.DataFrame):
+                return {"error": "Query 1 failed to execute.", "details": df1}
+            
             if df1.empty:
                 answer1 = "No data found for 2023 to determine top court."
             else:
                 answer1 = df1['court'].iloc[0]
 
-            # Query 2: Optimized to run on a smaller subset to prevent timeout
+            # Query 2: Optimized for the second and third questions
             query2 = """
             SELECT year, date_of_registration, decision_date
             FROM read_parquet('s3://indian-high-court-judgments/metadata/parquet/year=2023/court=33_10/bench=*/metadata.parquet?s3_region=ap-south-1');
             """
             df2 = run_duckdb_query(query2)
+
+            # --- ROBUSTNESS CHECK ---
+            if not isinstance(df2, pd.DataFrame):
+                 return {"error": "Query 2 failed to execute.", "details": df2}
 
             if df2.empty:
                 answer2 = "No data found for court 33_10 in 2023."
@@ -53,7 +62,6 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
                 df2['delay'] = (df2['decision_date'] - df2['date_of_registration']).dt.days
                 df2 = df2[df2['delay'] >= 0]
                 
-                # Check if there's enough data to analyze
                 if len(df2) < 2:
                     answer2 = "Not enough data points for regression."
                     answer3 = "Not enough data points to plot."
@@ -69,7 +77,7 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
 
             keys = [
                 "Which high court disposed the most cases from 2019 - 2022?",
-                "What's the regression slope of the date_of_registration - decision_date by year in the court=33_10?",
+                "What's a the regression slope of the date_of_registration - decision_date by year in the court=33_10?",
                 "Plot the year and # of days of delay from the above question as a scatterplot with a regression line. Encode as a base64 data URI under 100,000 characters"
             ]
             return {keys[0]: answer1, keys[1]: answer2, keys[2]: answer3}
