@@ -14,7 +14,7 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
     # Initialize the agent's state
     data_context = {}
     history = []
-    max_steps = 7 # Set a limit to prevent infinite loops
+    max_steps = 10 # Increased max steps for complex queries
 
     # --- Main Agent Loop ---
     for i in range(max_steps):
@@ -38,13 +38,22 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
 
         **Available Tools:**
         1. run_python_code_on_data(code: str, dataframe_name: str): For analysis on a DataFrame (e.g., 'df1', 'query_result_1', etc.). The dataframe is available as 'df1' in the code.
-        2. run_duckdb_query(query: str): For querying remote datasets. The result is a DataFrame.
+        2. run_duckdb_query(query: str): For querying the remote Indian court dataset. The result is a DataFrame. To select multiple years, use a WHERE clause (e.g., WHERE year BETWEEN 2019 AND 2022) and use `year=*` in the S3 path.
+           Example of an EFFICIENT query:
+           ```sql
+           INSTALL httpfs; LOAD httpfs; INSTALL parquet; LOAD parquet;
+           SELECT court, COUNT(*) AS case_count
+           FROM read_parquet('s3://indian-high-court-judgments/metadata/parquet/year=*/court=*/bench=*/metadata.parquet?s3_region=ap-south-1')
+           WHERE year BETWEEN 2019 AND 2022
+           GROUP BY court
+           ORDER BY case_count DESC
+           LIMIT 1;
+           ```
         3. create_scatterplot_with_regression(dataframe_name: str, x_col: str, y_col: str): Generates a plot.
-        4. finish(final_answers: list or dict): Call this FINAL tool when you have all the answers. The argument should be a JSON list or object that directly answers the user's request.
+        4. finish(final_answers: list or dict): Call this FINAL tool when you have all the answers for the user's request.
 
         **Your Task:**
-        Respond with a single JSON object representing the next tool call. Example: {{"tool_name": "run_duckdb_query", "args": {{"query": "SELECT * FROM ..."}}}}
-        If you have all the necessary information to answer the user's request, call the "finish" tool.
+        Respond with a single JSON object representing the next tool call.
         """
 
         response = client.chat.completions.create(
@@ -78,7 +87,6 @@ def process_analysis_request(task_description: str, files: dict) -> dict:
         elif tool_name == "run_duckdb_query":
             observation = run_duckdb_query(**args)
             if isinstance(observation, pd.DataFrame):
-                # Save the result with a unique name
                 query_result_name = f"query_result_{i+1}"
                 data_context[query_result_name] = observation
                 observation = f"Query successful. Result saved as DataFrame '{query_result_name}'. Columns: {observation.columns.tolist()}"
