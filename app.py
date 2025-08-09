@@ -1,19 +1,17 @@
-# app.py (Corrected Version)
-
+# app.py
 import os
+import traceback
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-# First, load the secret keys from the .env file.
+# Load environment variables FIRST
 load_dotenv()
 
-# Second, NOW that the keys are loaded, import the agent file that needs them.
+# NOW import the agent
 from agent import process_analysis_request
 
-# Third, create the Flask application.
 app = Flask(__name__)
 
-# --- Your API route definitions start here ---
 @app.route('/api/', methods=['POST'])
 def handle_analysis_request():
     if 'questions.txt' not in request.files:
@@ -27,9 +25,8 @@ def handle_analysis_request():
         result = process_analysis_request(task_description, other_files)
         return jsonify(result)
     except Exception as e:
-        print(f"An error occurred: {e}")
-        return jsonify({"error": "An internal error occurred. Check server logs."}), 500
+        print(f"A critical error occurred in Flask handler: {e}")
+        return jsonify({"error": "An internal server error occurred.", "details": str(e), "trace": traceback.format_exc()}), 500
 
-# --- This runs the app ---
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
