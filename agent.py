@@ -1,90 +1,102 @@
 # agent.py
+# NOTE: This agent is designed to be general-purpose but will likely time out on free platforms
+# when querying large datasets like the Indian Court Judgements.
+
+import os
+import json
 import pandas as pd
-import numpy as np
-from tools import scrape_web_table, run_duckdb_query, create_scatterplot_with_regression
+from openai import OpenAI
+from tools import scrape_web_table, run_python_code_on_data, run_duckdb_query, create_scatterplot_with_regression
+
+# Configure the client
+client = OpenAI(
+    base_url="https://aipipe.org/openai/v1",
+    api_key=os.getenv("AIPROXY_TOKEN")
+)
 
 def process_analysis_request(task_description: str, files: dict) -> dict:
-    try:
-        # --- RECIPE 1: Wikipedia Highest-Grossing Films ---
-        if "https://en.wikipedia.org/wiki/List_of_highest-grossing_films" in task_description:
-            print("INFO: Running recipe for Wikipedia films.")
-            df = scrape_web_table("https://en.wikipedia.org/wiki/List_of_highest-grossing_films")
-            
-            answer1 = df[(df['Gross'] >= 2_000_000_000) & (df['Year'] < 2000)].shape[0]
-            filtered_df = df[df['Gross'] > 1_500_000_000]
-            answer2 = filtered_df.loc[filtered_df['Year'].idxmin()]['Title']
-            answer3 = df['Rank'].corr(df['Peak'])
-            answer4 = create_scatterplot_with_regression(dataframe=df, x_col='Rank', y_col='Peak')
-            
-            return [answer1, answer2, answer3, answer4]
+    data_context = {}
+    history = []
+    max_steps = 10
 
-        # --- RECIPE 2: Indian High Court Judgements (With Robust Error Handling) ---
-        elif "Indian high court judgement dataset" in task_description:
-            print("INFO: Running FAST recipe for Indian Court data.")
-            
-            # Query 1: Optimized for the first question
-            query1 = """
-            SELECT court, COUNT(*) AS case_count
-            FROM read_parquet('s3://indian-high-court-judgments/metadata/parquet/year=2023/court=*/bench=*/metadata.parquet?s3_region=ap-south-1')
-            GROUP BY court ORDER BY case_count DESC LIMIT 1;
-            """
-            df1 = run_duckdb_query(query1)
-            
-            # --- ROBUSTNESS CHECK ---
-            # First, check if the query was successful before using the result
-            if not isinstance(df1, pd.DataFrame):
-                return {"error": "Query 1 failed to execute.", "details": df1}
-            
-            if df1.empty:
-                answer1 = "No data found for 2023 to determine top court."
-            else:
-                answer1 = df1['court'].iloc[0]
+    for i in range(max_steps):
+        print(f"\n--- Step {i+1} ---")
+        
+        prompt = f"""
+        You are a data analyst agent. Your goal is to answer the user's request by executing a sequence of tool calls.
+        Work step-by-step. I will provide the user's request and a history of your actions and their results.
+        Decide on the single next tool to call to move closer to the final answer.
 
-            # Query 2: Optimized for the second and third questions
-            query2 = """
-            SELECT year, date_of_registration, decision_date
-            FROM read_parquet('s3://indian-high-court-judgments/metadata/parquet/year=2023/court=33_10/bench=*/metadata.parquet?s3_region=ap-south-1');
-            """
-            df2 = run_duckdb_query(query2)
+        **User's Full Request:**
+        ---
+        {task_description}
+        ---
 
-            # --- ROBUSTNESS CHECK ---
-            if not isinstance(df2, pd.DataFrame):
-                 return {"error": "Query 2 failed to execute.", "details": df2}
+        **History of Actions Taken So Far:**
+        ---
+        {history}
+        ---
 
-            if df2.empty:
-                answer2 = "No data found for court 33_10 in 2023."
-                answer3 = "No data available to plot."
-            else:
-                # Pre-process data for regression and plotting
-                df2['date_of_registration'] = pd.to_datetime(df2['date_of_registration'], format='%d-%m-%Y', errors='coerce')
-                df2['decision_date'] = pd.to_datetime(df2['decision_date'], errors='coerce')
-                df2.dropna(subset=['date_of_registration', 'decision_date'], inplace=True)
-                df2['delay'] = (df2['decision_date'] - df2['date_of_registration']).dt.days
-                df2 = df2[df2['delay'] >= 0]
-                
-                if len(df2) < 2:
-                    answer2 = "Not enough data points for regression."
-                    answer3 = "Not enough data points to plot."
-                else:
-                    avg_delay_by_year = df2.groupby('year')['delay'].mean().reset_index()
-                    if len(avg_delay_by_year) < 2:
-                         answer2 = "Only one year of data; cannot compute regression slope."
-                         answer3 = create_scatterplot_with_regression(dataframe=avg_delay_by_year, x_col='year', y_col='delay')
-                    else:
-                         slope, intercept = np.polyfit(avg_delay_by_year['year'], avg_delay_by_year['delay'], 1)
-                         answer2 = slope
-                         answer3 = create_scatterplot_with_regression(dataframe=avg_delay_by_year, x_col='year', y_col='delay')
+        **Available Tools:**
+        1. run_python_code_on_data(code: str, dataframe_name: str): For analysis on a DataFrame (e.g., 'df1', 'query_result_1', etc.). The dataframe is available as 'df1' in the code.
+        2. run_duckdb_query(query: str): For querying the remote Indian court dataset. To select multiple years, use a WHERE clause (e.g., WHERE year BETWEEN 2019 AND 2022) and use `year=*` in the S3 path.
+           Example of an EFFICIENT query:
+           ```sql
+           INSTALL httpfs; LOAD httpfs; INSTALL parquet; LOAD parquet;
+           SELECT court, COUNT(*) AS case_count
+           FROM read_parquet('s3://indian-high-court-judgments/metadata/parquet/year=*/court=*/bench=*/metadata.parquet?s3_region=ap-south-1')
+           WHERE year BETWEEN 2019 AND 2022
+           GROUP BY court
+           ORDER BY case_count DESC
+           LIMIT 1;
+           ```
+        3. create_scatterplot_with_regression(dataframe_name: str, x_col: str, y_col: str): Generates a plot.
+        4. finish(final_answers: list or dict): Call this FINAL tool when you have all the answers for the user's request.
 
-            keys = [
-                "Which high court disposed the most cases from 2019 - 2022?",
-                "What's a the regression slope of the date_of_registration - decision_date by year in the court=33_10?",
-                "Plot the year and # of days of delay from the above question as a scatterplot with a regression line. Encode as a base64 data URI under 100,000 characters"
-            ]
-            return {keys[0]: answer1, keys[1]: answer2, keys[2]: answer3}
+        **Your Task:**
+        Respond with a single JSON object representing the next tool call.
+        """
 
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful data analyst agent that decides the next action to take."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"}
+        )
+        
+        try:
+            action = json.loads(response.choices[0].message.content)
+            tool_name = action['tool_name']
+            args = action.get('args', {})
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"Error parsing LLM response: {e}")
+            history.append(f"Invalid action response from LLM: {response.choices[0].message.content}")
+            continue
+
+        print(f"Action: {tool_name} with args: {args}")
+
+        if tool_name == "finish":
+            return args.get("final_answers", {"error": "Agent finished without providing an answer."})
+
+        if tool_name == "run_python_code_on_data":
+            df_name = args.pop('dataframe_name')
+            observation = run_python_code_on_data(dataframe=data_context[df_name], **args)
+        elif tool_name == "run_duckdb_query":
+            observation = run_duckdb_query(**args)
+            if isinstance(observation, pd.DataFrame):
+                query_result_name = f"query_result_{i+1}"
+                data_context[query_result_name] = observation
+                observation = f"Query successful. Result saved as DataFrame '{query_result_name}'. Columns: {observation.columns.tolist()}"
+        elif tool_name == "create_scatterplot_with_regression":
+            df_name = args.pop('dataframe_name')
+            observation = create_scatterplot_with_regression(dataframe=data_context[df_name], **args)
         else:
-            return {"error": "Unknown request type."}
+            observation = f"Error: Unknown tool '{tool_name}'"
+        
+        print(f"Observation: {observation}")
+        
+        history.append(f"Action: {action}, Observation: {observation}")
 
-    except Exception as e:
-        print(f"A critical error occurred: {e}")
-        return {"error": f"A critical error occurred: {e}"}
+    return {"error": "Agent exceeded maximum number of steps."}

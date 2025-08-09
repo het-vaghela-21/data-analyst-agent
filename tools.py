@@ -10,7 +10,6 @@ def scrape_web_table(url: str):
     """Scrapes and cleans the Wikipedia table of highest-grossing films."""
     try:
         df = pd.read_html(url, flavor='lxml')[0]
-        # --- Data Cleaning ---
         if 'Worldwide gross' in df.columns:
             df.rename(columns={'Worldwide gross': 'Gross'}, inplace=True)
         if 'Gross' in df.columns:
@@ -30,8 +29,9 @@ def scrape_web_table(url: str):
         return f"Error scraping or cleaning table: {e}"
 
 def run_duckdb_query(query: str):
-    """Runs a DuckDB query and returns a DataFrame."""
+    """Runs a live DuckDB query against the remote S3 dataset."""
     try:
+        print(f"INFO: Running live DuckDB query: {query}")
         con = duckdb.connect(database=':memory:', read_only=False)
         con.execute("INSTALL httpfs; LOAD httpfs; INSTALL parquet; LOAD parquet;")
         result_df = con.execute(query).fetchdf()
@@ -43,14 +43,11 @@ def create_scatterplot_with_regression(dataframe: pd.DataFrame, x_col: str, y_co
     """Creates a general-purpose scatterplot with a regression line."""
     try:
         df_copy = dataframe.copy()
-        # Ensure data is numeric, converting any problematic values to NaN
         df_copy[x_col] = pd.to_numeric(df_copy[x_col], errors='coerce')
         df_copy[y_col] = pd.to_numeric(df_copy[y_col], errors='coerce')
-        # Drop rows where the numeric conversion failed
         df_copy.dropna(subset=[x_col, y_col], inplace=True)
 
-        if df_copy.empty:
-            return "Error: No valid data to plot after cleaning."
+        if df_copy.empty: return "Error: No valid data to plot."
 
         x = df_copy[x_col]
         y = df_copy[y_col]
