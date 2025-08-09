@@ -1,10 +1,10 @@
-Scrape the list of highest grossing films from Wikipedia. It is at the URL:
-https://en.wikipedia.org/wiki/List_of_highest-grossing_films
+This is a new data analysis task. Please find and scrape the data from the Wikipedia page listing the world's tallest buildings.
 
-Answer the following questions and respond with a JSON array of strings containing the answer.
+The relevant URL is: https://en.wikipedia.org/wiki/List_of_tallest_buildings
 
-1. How many $2 bn movies were released before 2000?
-2. Which is the earliest film that grossed over $1.5 bn?
-3. What's the correlation between the Rank and Peak?
-4. Draw a scatterplot of Rank and Peak along with a dotted red regression line through it.
-   Return as a base-64 encoded data URI, `"data:image/png;base64,iVBORw0KG..."` under 100,000 bytes.
+Using the scraped data, please answer the following questions and return them as a JSON array.
+
+1.  How many buildings taller than 500 meters were completed after the year 2010?
+2.  What is the name of the building that has the most floors?
+3.  Calculate the Pearson correlation coefficient between the 'Height' and 'Floors' of the buildings.
+4.  Generate a scatter plot of 'Year' built vs. 'Height (m)', including a regression line, and return it as a base64-encoded data URI.
