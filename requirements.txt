@@ -9,3 +9,4 @@ duckdb
 lxml
 pyarrow
 Pillow
+openai
