@@ -1,12 +1,11 @@
-fastapi
-uvicorn[standard]
+Flask
+gunicorn
 python-dotenv
-python-multipart
 requests
 pandas
 numpy
 matplotlib
-Pillow
 duckdb
 lxml
 pyarrow
+Pillow

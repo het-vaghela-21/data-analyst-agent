@@ -17,11 +17,11 @@ def handle_analysis_request():
     if 'questions.txt' not in request.files:
         return jsonify({"error": "questions.txt is missing"}), 400
 
-    questions_file = request.files['questions.txt']
-    task_description = questions_file.read().decode('utf-8')
-    other_files = {filename: file for filename, file in request.files.items() if filename != 'questions.txt'}
-
     try:
+        questions_file = request.files['questions.txt']
+        task_description = questions_file.read().decode('utf-8')
+        other_files = {filename: file for filename, file in request.files.items() if filename != 'questions.txt'}
+
         result = process_analysis_request(task_description, other_files)
         return jsonify(result)
     except Exception as e:
